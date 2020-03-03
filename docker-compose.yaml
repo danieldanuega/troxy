@@ -1,0 +1,154 @@
+version: "3.3"
+
+services:
+  ################################################
+  ####        Traefik Proxy Setup           #####
+  ###############################################
+  traefik:
+    image: traefik:v2.1
+    restart: always
+    container_name: traefik
+    ports:
+      - "80:80" # <== http
+      - "8080:8080" # <== :8080 is where the dashboard runs on
+      - "443:443" # <== https
+    command:
+    #### These are the CLI commands that will configure Traefik and tell it how to work! ####
+      ## API Settings - https://docs.traefik.io/operations/api/, endpoints - https://docs.traefik.io/operations/api/#endpoints ##
+      - --api.insecure=false # <== Enabling insecure api, NOT RECOMMENDED FOR PRODUCTION
+      - --api.dashboard=true # <== Enabling the dashboard to view services, middlewares, routers, etc...
+      - --api.debug=true # <== Enabling additional endpoints for debugging and profiling
+      ## Log Settings (options: ERROR, DEBUG, PANIC, FATAL, WARN, INFO) - https://docs.traefik.io/observability/logs/ ##
+      - --log.level=DEBUG # <== Setting the level of the logs from traefik
+      ## Provider Settings - https://docs.traefik.io/providers/docker/#provider-configuration ##
+      - --providers.docker=true # <== Enabling docker as the provider for traefik
+      - --providers.docker.exposedbydefault=false # <== Don't expose every container to traefik, only expose enabled ones
+      - --providers.file.filename=./dynamic.yaml # <== Referring to a dynamic configuration file
+      - --providers.docker.network=proxy # <== Operate on the docker network named web
+      ## Entrypoints Settings - https://docs.traefik.io/routing/entrypoints/#configuration ##
+      - --entrypoints.http.address=:80 # <== Defining an entrypoint for port :80 named web
+      - --entrypoints.https.address=:443 # <== Defining an entrypoint for https on port :443 named web-secured
+      ## Certificate Settings (Let's Encrypt) -  https://docs.traefik.io/https/acme/#configuration-examples ##
+      - --certificatesResolvers.troxyresolvers.acme.tlschallenge=true # <== Enable TLS-ALPN-01 to generate and renew ACME certs
+      - --certificatesResolvers.troxyresolvers.acme.email=godaniel135@gmail.com # <== Setting email for certs
+      - --certificatesResolvers.troxyresolvers.acme.storage=./letsencrypt/acme.json # <== Defining acme file to store cert information
+      - --certificatesResolvers.troxyresolvers.acme.httpChallenge.entryPoint=http
+    volumes:
+      - ./letsencrypt:/letsencrypt # <== Volume for certs (TLS)
+      - /var/run/docker.sock:/var/run/docker.sock # <== Volume for docker admin
+      - ./dynamic.yaml:/dynamic.yaml # <== Volume for dynamic conf file, **ref: line 27
+    networks:
+      - proxy # <== Placing traefik on the network named web, to access containers on this network
+    labels:
+    #### Labels define the behavior and rules of the traefik proxy for this container ####
+      - "traefik.enable=true" # <== Enable traefik on itself to view dashboard and assign subdomain to view it
+      - "traefik.http.routers.api.rule=Host(`monitor.troxy.xyz`)" # <== Setting the domain for the dashboard
+      - "traefik.http.routers.api.service=api@internal" # <== Enabling the api to be a service to access
+
+  tipster-auth:
+    image: danielgo13/tipster-auth
+    restart: always
+    container_name: tipster-auth
+    environment:
+      MYSQL_HOST: db
+      MYSQL_USER: daniel
+      MYSQL_PASS: local123
+      MYSQL_DB: tipster
+      REDIS_HOST: redis
+      REDIS_PASS: local123
+    networks:
+      - proxy
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.auth.rule=Host(`auth.troxy.xyz`)"
+      - "traefik.http.routers.auth.entrypoints=http"
+      - "traefik.http.routers.auth.middlewares=redirect@file"
+      - "traefik.http.routers.auth-secured.rule=Host(`auth.troxy.xyz`)"
+      - "traefik.http.routers.auth-secured.entrypoints=https"
+      - "traefik.http.routers.auth-secured.tls.certresolver=troxyresolvers"
+    command: ["./wait-for-it.sh", "db:3306", "--", "python3", "run.py"]
+
+  tipster-category:
+    image: danielgo13/tipster-category
+    restart: always
+    container_name: tipster-category
+    environment:
+      MYSQL_HOST: db
+      MYSQL_USER: daniel
+      MYSQL_PASS: local123
+      MYSQL_DB: tipster
+      REDIS_HOST: redis
+      REDIS_PASS: local123
+    networks:
+      - proxy
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.category.rule=Host(`category.troxy.xyz`)"
+      - "traefik.http.routers.category.entrypoints=http"
+      - "traefik.http.routers.category.middlewares=redirect@file"
+      - "traefik.http.routers.category-secured.rule=Host(`category.troxy.xyz`)"
+      - "traefik.http.routers.category-secured.entrypoints=https"
+      - "traefik.http.routers.category-secured.tls.certresolver=troxyresolvers"
+    command: ["./wait-for-it.sh", "db:3306", "--", "python3", "run.py"]
+
+  tipster-tips:
+    image: danielgo13/tipster-tips
+    restart: always
+    container_name: tipster-tips
+    environment:
+      MYSQL_HOST: db
+      MYSQL_USER: daniel
+      MYSQL_PASS: local123
+      MYSQL_DB: tipster
+      REDIS_HOST: redis
+      REDIS_PASS: local123
+    networks:
+      - proxy
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tips.rule=Host(`tips.troxy.xyz`)"
+      - "traefik.http.routers.tips.entrypoints=http"
+      - "traefik.http.routers.tips.middlewares=redirect@file"
+      - "traefik.http.routers.tips-secured.rule=Host(`tips.troxy.xyz`)"
+      - "traefik.http.routers.tips-secured.entrypoints=https"
+      - "traefik.http.routers.tips-secured.tls.certresolver=troxyresolvers"
+    command: ["./wait-for-it.sh", "db:3306", "--", "python3", "run.py"]
+
+
+  db:
+    image: mysql:latest
+    restart: always
+    container_name: tipster-mysql
+    networks:
+      - backend
+    volumes:
+      - type: bind
+        source: ./schema/
+        target: /docker-entrypoint-initdb.d/
+    environment:
+      MYSQL_USER: daniel
+      MYSQL_PASSWORD: local123
+      MYSQL_ROOT_PASSWORD: nihaoma
+      MYSQL_DATABASE: tipster
+    ports:
+      - "3306:3306"
+
+  redis:
+    image: redis:latest
+    restart: always
+    container_name: tipster-redis
+    networks:
+      - backend
+    ports:
+      - "6379:6379"
+    command: redis-server --requirepass local123
+           
+
+networks:
+  proxy:
+    external: true
+  backend:
+    external: false
