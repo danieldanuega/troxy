@@ -1,5 +1,10 @@
 http:
   middlewares:
+    redirect-limiter:
+      chain:
+        middlewares:
+          - redirect
+          - troxy-limiter
     redirect:
       redirectScheme:
         scheme: https
@@ -7,3 +12,7 @@ http:
       basicAuth:
         users:
           - "daniel:$apr1$OMGeAP9s$7B6880YmYKCrsF2mn2Arf0"
+    troxy-limiter:
+      rateLimit:
+        average: 50
+        burst: 5
